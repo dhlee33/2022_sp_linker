@@ -54,9 +54,7 @@ void init(void)
 __attribute__((destructor))
 void fini(void)
 {
-  // ...
-
-  LOG_STATISTICS(0L, 0L, 0L);
+  LOG_STATISTICS(n_allocb, n_allocb / (n_malloc + n_calloc + n_realloc), 0);
 
   LOG_STOP();
 
@@ -64,4 +62,85 @@ void fini(void)
   free_list(list);
 }
 
-// ...
+void *malloc(size_t size)
+{
+  void *ptr;
+  char *error;
+
+  if (!mallocp) {
+    mallocp = dlsym(RTLD_NEXT, "malloc");
+    if ((error = dlerror()) != NULL || (mallocp == NULL)) {
+      fprintf(stderr, "Error getting symbol 'malloc': %s\n", error);
+      exit(1);
+    }
+  }
+
+  ptr = mallocp(size);
+  n_allocb += size;
+  n_malloc += 1;
+  LOG_MALLOC(size, ptr);
+
+  return ptr;
+}
+
+void *calloc(size_t nmemb, size_t size)
+{
+  void *ptr;
+  char *error;
+
+  if (!callocp) {
+    callocp = dlsym(RTLD_NEXT, "calloc");
+    
+    if ((error = dlerror()) != NULL || (callocp == NULL)) {
+      fprintf(stderr, "Error getting symbol 'calloc': %s\n", error);
+      exit(1);
+    }
+  }
+
+  ptr = callocp(nmemb, size);
+  n_allocb += nmemb * size;
+  n_calloc += 1;
+
+  LOG_CALLOC(nmemb, size, ptr);
+
+  return ptr;
+}
+
+void *realloc(void *ptr, size_t size)
+{  
+  char *error;
+  void *realloced_ptr;
+
+  if (!reallocp) {      
+    reallocp = dlsym(RTLD_NEXT, "realloc");
+    if ((error = dlerror()) != NULL || (reallocp == NULL)) {
+      fprintf(stderr, "Error getting symbol 'realloc': %s\n", error);
+      exit(1);
+    }
+  }
+
+  realloced_ptr = reallocp(ptr, size);
+  n_allocb += size;
+  n_realloc += 1;
+
+  LOG_REALLOC(ptr, size, realloced_ptr); 
+
+  return realloced_ptr;   
+}
+
+void free(void *ptr)
+{
+  char *error;
+
+  if(!freep) {
+    freep = dlsym(RTLD_NEXT, "free");
+    if ((error = dlerror()) != NULL || (freep == NULL)) {
+      fprintf(stderr, "Error getting symbol 'free': %s\n", error);
+      exit(1);
+    }
+  }
+  
+  freep(ptr);
+    
+  LOG_FREE(ptr);  
+}
