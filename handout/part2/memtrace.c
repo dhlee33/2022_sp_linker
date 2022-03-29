@@ -54,7 +54,19 @@ void init(void)
 __attribute__((destructor))
 void fini(void)
 {
-  LOG_STATISTICS(n_allocb, n_allocb / (n_malloc + n_calloc + n_realloc), 0);
+  LOG_STATISTICS(n_allocb, n_allocb / (n_malloc + n_calloc + n_realloc), n_freeb);
+
+  int log_nonfreed_started = 0;
+  while (list) {
+    if (list->cnt > 0) {
+      if (log_nonfreed_started == 0) {
+        log_nonfreed_started = 1;
+        LOG_NONFREED_START();
+      }
+      LOG_BLOCK(list->ptr, list->size, list->cnt);
+    }
+    list = list->next;
+  }
 
   LOG_STOP();
 
@@ -80,6 +92,8 @@ void *malloc(size_t size)
   n_malloc += 1;
   LOG_MALLOC(size, ptr);
 
+  alloc(list, ptr, size);
+
   return ptr;
 }
 
@@ -103,6 +117,8 @@ void *calloc(size_t nmemb, size_t size)
 
   LOG_CALLOC(nmemb, size, ptr);
 
+  alloc(list, ptr, nmemb * size);
+
   return ptr;
 }
 
@@ -122,6 +138,8 @@ void *realloc(void *ptr, size_t size)
   realloced_ptr = reallocp(ptr, size);
   n_allocb += size;
   n_realloc += 1;
+  n_freeb += dealloc(list, ptr)->size;
+  alloc(list, realloced_ptr, size); 
 
   LOG_REALLOC(ptr, size, realloced_ptr); 
 
@@ -139,7 +157,9 @@ void free(void *ptr)
       exit(1);
     }
   }
-  
+
+  n_freeb += dealloc(list, ptr)->size;
+
   freep(ptr);
     
   LOG_FREE(ptr);  
