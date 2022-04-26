@@ -179,62 +179,6 @@ static void *seg_search(size_t adj_size) {
     return list_ptr;
 }
 
-int mm_init(void) {
-    int cnt;
-    seg_listp = mem_sbrk(SEG_LIST_MAX * WSIZE);
-
-    for (cnt = 0; cnt < SEG_LIST_MAX; cnt++) {
-        SEG_LIST(seg_listp, cnt) = NULL;
-    }
-
-    if ((long)(heap_listp = mem_sbrk(4 * WSIZE)) == -1) {
-        return -1;
-    }
-
-    PUT(heap_listp, 0);
-    PUT(heap_listp + (1 * WSIZE), PACK(DSIZE, 1));
-    PUT(heap_listp + (2 * WSIZE), PACK(DSIZE, 1));
-    PUT(heap_listp + (3 * WSIZE), PACK(0, 1));
-    heap_listp += (2 * WSIZE);
-
-    if (extend_heap(INIT_CHUNKSIZE) == NULL) {
-        return -1;
-    }
-
-    return 0;
-}
-
-void *mm_malloc(size_t size) {
-    if (size == 0) {
-        return NULL;
-    }
-
-    size_t adj_size;
-    size_t extend_size;
-    char *bp;
-    char *ptr;
-
-    if (size < DSIZE) {
-        adj_size = 2 * DSIZE;
-    } else {
-        adj_size = ALIGN(size + DSIZE);
-    }
-
-    if ((bp = seg_search(adj_size)) != NULL) {
-        ptr = place(bp, adj_size);
-        return ptr;
-    }
-
-    extend_size = MAX(adj_size, CHUNKSIZE);
-    if ((bp = extend_heap(extend_size / WSIZE)) == NULL) {
-        return NULL;
-    }
-
-    ptr = place(bp, adj_size);
-
-    return ptr;
-}
-
 static void *place(void *bp, size_t adj_size) {
     size_t block_size = GET_SIZE(HDRP(bp));
     void *next_ptr = NULL;
@@ -302,6 +246,61 @@ static void *coalesce(void *bp) {
     return bp;
 }
 
+int mm_init(void) {
+    int cnt;
+    seg_listp = mem_sbrk(SEG_LIST_MAX * WSIZE);
+
+    for (cnt = 0; cnt < SEG_LIST_MAX; cnt++) {
+        SEG_LIST(seg_listp, cnt) = NULL;
+    }
+
+    if ((long)(heap_listp = mem_sbrk(4 * WSIZE)) == -1) {
+        return -1;
+    }
+
+    PUT(heap_listp, 0);
+    PUT(heap_listp + (1 * WSIZE), PACK(DSIZE, 1));
+    PUT(heap_listp + (2 * WSIZE), PACK(DSIZE, 1));
+    PUT(heap_listp + (3 * WSIZE), PACK(0, 1));
+    heap_listp += (2 * WSIZE);
+
+    if (extend_heap(INIT_CHUNKSIZE) == NULL) {
+        return -1;
+    }
+
+    return 0;
+}
+
+void *mm_malloc(size_t size) {
+    if (size == 0) {
+        return NULL;
+    }
+
+    size_t adj_size;
+    size_t extend_size;
+    char *bp;
+    char *ptr;
+
+    if (size < DSIZE) {
+        adj_size = 2 * DSIZE;
+    } else {
+        adj_size = ALIGN(size + DSIZE);
+    }
+
+    if ((bp = seg_search(adj_size)) != NULL) {
+        ptr = place(bp, adj_size);
+        return ptr;
+    }
+
+    extend_size = MAX(adj_size, CHUNKSIZE);
+    if ((bp = extend_heap(extend_size / WSIZE)) == NULL) {
+        return NULL;
+    }
+
+    ptr = place(bp, adj_size);
+
+    return ptr;
+}
 
 void mm_free(void *bp) {
     size_t size = GET_SIZE(HDRP(bp));
