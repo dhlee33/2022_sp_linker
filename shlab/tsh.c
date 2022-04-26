@@ -362,7 +362,7 @@ void sigchld_handler(int sig)
     pid_t pid;
     int sig_status;
 
-    if ((pid = waitpid(-1, &sig_status, WNOHANG | WUNTRACED))) {
+    if ((pid = waitpid(-1, &sig_status, WNOHANG | WUNTRACED)) > 0) {
         if (WIFEXITED(sig_status)) {
             deletejob(jobs, pid);
         } else if (WIFSTOPPED(sig_status)) {
@@ -385,7 +385,7 @@ void sigint_handler(int sig)
 {
     pid_t pid = fgpid(jobs);
     if (pid) {
-        kill(-pid, sig);    // Send sig to process group
+        kill(-pid, sig);
     }
 }
 
@@ -398,7 +398,7 @@ void sigtstp_handler(int sig)
 {
     pid_t pid = fgpid(jobs);
     if (pid) {
-        kill(-pid, sig);    // Send sig to process group
+        kill(-pid, sig);
     }
 }
 
