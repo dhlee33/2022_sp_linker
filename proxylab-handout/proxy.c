@@ -23,7 +23,7 @@ int main(int argc, char **argv) {
         exit(1);
     }
     signal(SIGPIPE, SIG_IGN);
-    cache_init();
+    init_cache();
 
     char *port = argv[1];
     pthread_t tid;
@@ -56,6 +56,83 @@ void *thread(void *vargp) {
     return NULL;
 }
 
+void build_requesthdrs(rio_t *rp, char *newreq, char *hostname, char *pathname, int *port) {
+    char buf[MAXLINE];
+
+    while (Rio_readlineb(rp, buf, MAXLINE) > 0) {
+        if (!strcmp(buf, "\r\n"))
+            break;
+        if (strstr(buf, "Host:") != NULL)
+            continue;
+        if (strstr(buf, "User-Agent:") != NULL)
+            continue;
+        if (strstr(buf, "Connection:") != NULL)
+            continue;
+        if (strstr(buf, "Proxy-Connection:") != NULL)
+            continue;
+
+        sprintf(newreq, "%s%s", newreq, buf);
+    }
+    sprintf(newreq, "%sHost: %s:%d\r\n", newreq, hostname, *port);
+    sprintf(newreq, "%s%s%s%s", newreq, user_agent_hdr, conn_hdr, prox_hdr);
+    sprintf(newreq, "%s\r\n", newreq);
+}
+
+int parse_uri(char *uri, char *hostname, char *pathname, int *port) {
+    char *hostbegin;
+    char *hostend;
+    char *pathbegin;
+    int len;
+
+    if (strncasecmp(uri, "http://", 7) != 0) {
+        hostname[0] = '\0';
+        return -1;
+    }
+
+    hostbegin = uri + 7;
+    hostend = strpbrk(hostbegin, " :/\r\n\0");
+    if (hostend == NULL) return -1;
+    len = hostend - hostbegin;
+    strncpy(hostname, hostbegin, len);
+    hostname[len] = '\0';
+
+    *port = 80;
+    if (*hostend == ':') {
+        *port = atoi(hostend + 1);
+    }
+
+    pathbegin = strchr(hostbegin, '/');
+    if (pathbegin == NULL) {
+        return -1;
+    } else {
+        strcpy(pathname, pathbegin++);
+    }
+
+    return 0;
+}
+
+void make_error(int fd, char *cause, char *errnum, char *shortmsg, char *longmsg) {
+    char buf[MAXLINE], body[MAXBUF];
+
+    sprintf(body, "<html><title>Proxy Error</title>");
+    sprintf(body, "%s<body bgcolor="
+                  "ffffff"
+                  ">\r\n",
+            body);
+    sprintf(body, "%s%s: %s\r\n", body, errnum, shortmsg);
+    sprintf(body, "%s<p>%s: %s\r\n", body, longmsg, cause);
+    sprintf(body, "%s<hr><em>The Proxy Web server</em>\r\n", body);
+
+    sprintf(buf, "HTTP/1.0 %s %s\r\n", errnum, shortmsg);
+    Rio_writen(fd, buf, strlen(buf));
+    sprintf(buf, "Content-type: text/html\r\n");
+    Rio_writen(fd, buf, strlen(buf));
+    sprintf(buf, "Content-length: %d\r\n\r\n", (int)strlen(body));
+    Rio_writen(fd, buf, strlen(buf));
+    Rio_writen(fd, body, strlen(body));
+}
+
+
 void request(int connfd) {
     int clientfd, port;
     char buf[MAXBUF];
@@ -84,7 +161,7 @@ void request(int connfd) {
     build_requesthdrs(&rio_client_proxy, buf, hostname, pathname, &port);
 
     cnode_t *c;
-    if ((c = match(hostname, port, pathname))) {
+    if ((c = match_cache(hostname, port, pathname))) {
         Rio_writen(connfd, c->payload, strlen(c->payload));
         printf("cache hit\n");
     return;
@@ -122,89 +199,13 @@ void request(int connfd) {
 
     P(&mutex);
     while (cache_load + (int)(tmp->size) > MAX_CACHE_SIZE) {
-        dequeue();
+        dequeue_cache();
     }
-    enqueue(new (tmp->host, tmp->port, tmp->path, tmp->payload, tmp->size));
+    enqueue_cache(new (tmp->host, tmp->port, tmp->path, tmp->payload, tmp->size));
     V(&mutex);
     Free(tmp->host);
     Free(tmp->path);
     Free(tmp->payload);
     Free(tmp);
     Free(c);
-}
-
-void build_requesthdrs(rio_t *rp, char *newreq, char *hostname, char *pathname, int *port) {
-    char buf[MAXLINE];
-
-    while (Rio_readlineb(rp, buf, MAXLINE) > 0) {
-        if (!strcmp(buf, "\r\n"))
-            break;
-        if (strstr(buf, "Host:") != NULL)
-            continue;
-        if (strstr(buf, "User-Agent:") != NULL)
-            continue;
-        if (strstr(buf, "Connection:") != NULL)
-            continue;
-        if (strstr(buf, "Proxy-Connection:") != NULL)
-            continue;
-
-        sprintf(newreq, "%s%s", newreq, buf);
-    }
-    sprintf(newreq, "%sHost: %s:%d\r\n", newreq, hostname, *port);
-    sprintf(newreq, "%s%s%s%s", newreq, user_agent_hdr, conn_hdr, prox_hdr);
-    sprintf(newreq, "%s\r\n", newreq);
-}
-
-void make_error(int fd, char *cause, char *errnum, char *shortmsg, char *longmsg) {
-    char buf[MAXLINE], body[MAXBUF];
-
-    sprintf(body, "<html><title>Proxy Error</title>");
-    sprintf(body, "%s<body bgcolor="
-                  "ffffff"
-                  ">\r\n",
-            body);
-    sprintf(body, "%s%s: %s\r\n", body, errnum, shortmsg);
-    sprintf(body, "%s<p>%s: %s\r\n", body, longmsg, cause);
-    sprintf(body, "%s<hr><em>The Proxy Web server</em>\r\n", body);
-
-    sprintf(buf, "HTTP/1.0 %s %s\r\n", errnum, shortmsg);
-    Rio_writen(fd, buf, strlen(buf));
-    sprintf(buf, "Content-type: text/html\r\n");
-    Rio_writen(fd, buf, strlen(buf));
-    sprintf(buf, "Content-length: %d\r\n\r\n", (int)strlen(body));
-    Rio_writen(fd, buf, strlen(buf));
-    Rio_writen(fd, body, strlen(body));
-}
-
-int parse_uri(char *uri, char *hostname, char *pathname, int *port) {
-    char *hostbegin;
-    char *hostend;
-    char *pathbegin;
-    int len;
-
-    if (strncasecmp(uri, "http://", 7) != 0) {
-        hostname[0] = '\0';
-        return -1;
-    }
-
-    hostbegin = uri + 7;
-    hostend = strpbrk(hostbegin, " :/\r\n\0");
-    if(hostend == NULL) return -1;
-    len = hostend - hostbegin;
-    strncpy(hostname, hostbegin, len);
-    hostname[len] = '\0';
-
-    *port = 80;
-    if (*hostend == ':') {
-        *port = atoi(hostend + 1);
-    }
-
-    pathbegin = strchr(hostbegin, '/');
-    if (pathbegin == NULL) {
-        return -1;
-    } else {
-        strcpy(pathname, pathbegin++);
-    }
-
-    return 0;
 }

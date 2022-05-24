@@ -27,14 +27,14 @@ extern sem_t mutex, w;         // Both initially 1;
 
 /* Cache function prototypes */
 int cmp(cnode_t *this, char *host, int port, char *path);
-void cache_init();
-void delete(cnode_t *node);
-void enqueue(cnode_t *node);
-void dequeue();
+void init_cache();
+void delete_cache(cnode_t *node);
+void enqueue_cache(cnode_t *node);
+void dequeue_cache();
 cnode_t * new(char *host, int port, char *path, char *payload, size_t size);
-cnode_t * match(char *host, int port, char *path);
-int cache_check();
-void Cache_check();
+cnode_t * match_cache(char *host, int port, char *path);
+int check_cache();
+void Check_cache();
 
 
 #endif
